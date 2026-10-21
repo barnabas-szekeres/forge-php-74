@@ -25,6 +25,18 @@ The result is a **drop-in replacement**: same package names, paths, `php7.4-fpm`
 - **Other fixes:** 7.4.33-31 also backports about a dozen other security fixes from 8.2.34 (FastCGI ACL, mysqlnd, OpenSSL hostname checks, phar, SOAP, HTTP stream wrapper and more). The package changelog has the full list.
 - **Earlier builds from this repository:** a previous version of this repository rebuilt 7.4.33-30 with the same patch (`+kuixcve1` packages). Those servers are already protected. `install.sh` replaces that build with the official package.
 - **PECL extensions:** packages built from other sources (`php7.4-memcache(d)`, `-redis`, `-imagick`, ...) stay compatible and are left untouched.
+- **Other PHP versions:** on 21 October 2026, Ondřej also shipped the fix for every other branch: the new upstream releases for 8.2–8.5, and backports for the end-of-life 5.6–8.1. `install.sh` handles php7.4 only, and `verify.sh` checks every installed version. The first fixed build of each branch is:
+
+  | Branch | First fixed build | Branch | First fixed build |
+  |---|---|---|---|
+  | 5.6 | `5.6.40-104` | 8.0 | `1:8.0.30-25` |
+  | 7.0 | `7.0.33-92` | 8.1 | `8.1.34-9` |
+  | 7.1 | `7.1.33-80` | 8.2 | `8.2.35-1` |
+  | 7.2 | `7.2.34-66` | 8.3 | `8.3.36-1` |
+  | 7.3 | `7.3.33-35` | 8.4 | `8.4.27-1` |
+  | 7.4 | `1:7.4.33-31` | 8.5 | `8.5.12-1` |
+
+  `ppa:ondrej/php` and packages.sury.org use the same Debian revisions, so the PPA's builds compare the same way.
 
 ## Requirements
 
@@ -109,11 +121,13 @@ Supervisor stops each process with SIGTERM, so Laravel queue workers and Horizon
 
 It checks five things:
 
-- Every php7.4 core package is 7.4.33-31 or later, or the earlier `+kuixcve1` build.
+- Every installed PHP version contains the fix: each package built from a `phpX.Y` source is at least the first fixed build in the table above. For php7.4 the earlier `+kuixcve1` build also passes.
 - `php-fpm7.4` and `php7.4` contain the fix: they export `zend_new_array_singleton` and `zend_mm_safe_error_ex`, which only exist in the patched code.
-- No process still runs the old binary.
-- Which PHP versions serve sites (every one must be patched).
-- Whether `session.upload_progress.enabled` is disabled.
+- No process still runs an old binary.
+- Which PHP versions serve sites (for information).
+- Whether `session.upload_progress.enabled` is disabled, for every installed PHP-FPM version.
+
+The version check assumes PHP comes from Ondřej's builds, as on Forge. Ubuntu's own `php8.x` packages fix security issues without raising the upstream version, so the check would fail them.
 
 `php -v` still reports `7.4.33`. Version-based scanners will therefore keep flagging the host; this is expected.
 
@@ -161,6 +175,9 @@ The [official advisory](https://www.php.net/archive/2026.php#2026-10-21-5) lists
   - A second run changed nothing and moved the earlier backup aside.
   - The rollback command restored the backed-up packages.
 - On arm64, the script stopped at the version check, because packages.sury.org only had 7.4.33-30 there.
+- `verify.sh` in an `ubuntu:24.04` container with dummy packages for php5.6, 7.4, 8.1, 8.3 and an unknown 9.0, in both PPA and packages.sury.org version styles:
+  - It flagged an unfixed `php8.1-common` and an unfixed `libapache2-mod-php7.4`, and passed the fixed branches.
+  - It ignored PECL packages and `php-common`, and reported the unknown branch for a manual check.
 - `restart-workers.sh` in an `ubuntu:24.04` container with Supervisor. The setup had a 2-process queue worker and a daemon running, a stopped worker, and a PHP process outside Supervisor, and the php7.4 binary had been replaced under them:
   - It marked the old binary and restarted the running groups only.
   - It then listed the PHP process outside Supervisor as still running the old binary.
