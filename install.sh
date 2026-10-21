@@ -28,6 +28,10 @@ REPO_LIST="/etc/apt/sources.list.d/sury-php74-temp.list"
 REPO_PIN="/etc/apt/preferences.d/sury-php74-temp"
 KEYRING="/usr/share/keyrings/deb.sury.org-php.gpg"
 ROLLBACK_DIR="$HOME/php74-rollback"
+# Install non-interactively and keep local configuration files (Forge changes php.ini and the
+# FPM pools), so no debconf/ucf or dpkg conffile question comes up halfway through.
+NONINTERACTIVE=(env DEBIAN_FRONTEND=noninteractive UCF_FORCE_CONFFOLD=1)
+KEEP_CONF=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
 
 . /etc/os-release
 CODENAME="$VERSION_CODENAME"   # e.g. noble
@@ -47,7 +51,7 @@ curl -fsS -o /dev/null "https://packages.sury.org/php/dists/$CODENAME/Release" \
 # so the rest of the server keeps following ppa:ondrej/php.
 tmp=$(mktemp -d)
 curl -fsSL -o "$tmp/debsuryorg-archive-keyring.deb" https://packages.sury.org/debsuryorg-archive-keyring.deb
-sudo dpkg -i "$tmp/debsuryorg-archive-keyring.deb"
+sudo "${NONINTERACTIVE[@]}" dpkg -i "$tmp/debsuryorg-archive-keyring.deb"
 rm -rf "$tmp"
 echo "deb [signed-by=$KEYRING] https://packages.sury.org/php/ $CODENAME main" | sudo tee "$REPO_LIST" >/dev/null
 printf 'Package: *\nPin: origin "packages.sury.org"\nPin-Priority: 100\n' | sudo tee "$REPO_PIN" >/dev/null
@@ -92,12 +96,12 @@ read -r -p "Proceed? [y/N] " ok; [ "$ok" = "y" ] || exit 1
 # so rollback works even if the PPA is unreachable. An older backup is kept aside.
 if compgen -G "$ROLLBACK_DIR/*.deb" >/dev/null; then mv "$ROLLBACK_DIR" "$ROLLBACK_DIR.$(date +%Y%m%d%H%M%S)"; fi
 mkdir -p "$ROLLBACK_DIR"
-sudo apt-get install -y dpkg-repack
+sudo "${NONINTERACTIVE[@]}" apt-get install -y "${KEEP_CONF[@]}" dpkg-repack
 ( cd "$ROLLBACK_DIR" && sudo dpkg-repack "${pkgs[@]}" )
 echo "Rollback packages saved to $ROLLBACK_DIR"
 
 sudo apt-mark unhold "${pkgs[@]}" >/dev/null   # an earlier build from this repository was put on hold
-sudo apt-get install -y "${targets[@]}"
+sudo "${NONINTERACTIVE[@]}" apt-get install -y "${KEEP_CONF[@]}" "${targets[@]}"
 for s in "${services[@]}"; do
   sudo systemctl restart "$s"   # restart, not reload, so every worker runs the new binary
 done

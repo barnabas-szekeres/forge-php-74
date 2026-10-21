@@ -93,7 +93,7 @@ The script performs these steps:
 
    It then lists the plan and asks for confirmation.
 5. Backs up the packages it will replace with `dpkg-repack` to `~/php74-rollback`. An older backup there is moved aside to `~/php74-rollback.<timestamp>`.
-6. Installs exactly the packages.sury.org version of every package of each version it replaces. All packages of a version are replaced together, because they depend on each other's exact version. Any hold left by an earlier build from this repository is lifted first.
+6. Installs exactly the packages.sury.org version of every package of each version it replaces. All packages of a version are replaced together, because they depend on each other's exact version. Any hold left by an earlier build from this repository is lifted first. The install runs non-interactively and keeps the local configuration files, such as Forge's changes to `php.ini` and the FPM pools. Where a package ships a changed `php.ini`, its new version is saved next to the kept file as `php.ini.ucf-dist`.
 7. Restarts the `phpX.Y-fpm` service of each replaced version, and Apache if it is running and a replaced `libapache2-mod-php` package is installed.
 
 If some versions could not be fixed, the script ends with a warning and exit code 1.
@@ -181,6 +181,7 @@ The [official advisory](https://www.php.net/archive/2026.php#2026-10-21-5) lists
   - It replaced the php7.4 and php8.1 packages with the fixed builds, left php8.3 and the PECL package untouched, and restarted `php7.4-fpm` and `php8.1-fpm`.
   - `verify.sh` confirmed the fix for all three versions and in both php7.4 binaries.
   - A second run found nothing to do. With an unknown php9.0 added, it skipped that version and exited with an error.
+- `install.sh` on a php7.4 whose Forge-modified `php.ini` came from an older package template, the case where `ucf` would ask. There were no debconf warnings and no questions. The modified `php.ini` was kept, and the package's new version was saved as `php.ini.ucf-dist`.
 - An earlier test of the same backup code: a second run moved the earlier backup aside, and the rollback command restored the backed-up packages.
 - On arm64, `install.sh` skipped php7.4 and php8.1, because packages.sury.org had no fixed builds there yet, and replaced nothing.
 - `verify.sh` in an `ubuntu:24.04` container with dummy packages for php5.6, 7.4, 8.1, 8.3 and an unknown 9.0, in both PPA and packages.sury.org version styles:
