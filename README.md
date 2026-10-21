@@ -15,6 +15,7 @@ The result is a **drop-in replacement**: same package names, paths, `php7.4-fpm`
 | File | Purpose |
 |---|---|
 | `install.sh` | Adds packages.sury.org and installs php7.4 7.4.33-31 on a Forge server, with a rollback backup |
+| `restart-workers.sh` | Lists the running queue workers and daemons, then restarts them so they pick up the new binary |
 | `verify.sh` | Post-install checks |
 
 ## About the fix
@@ -46,7 +47,7 @@ dpkg -l 'php7.4*' | awk '/^ii/{print $2, $3}'
 ```bash
 # from your machine
 ssh forge@<SERVER_IP> 'mkdir -p ~/php74-cve'
-scp install.sh verify.sh forge@<SERVER_IP>:~/php74-cve/
+scp install.sh restart-workers.sh verify.sh forge@<SERVER_IP>:~/php74-cve/
 ```
 
 Or download them on the server:
@@ -54,6 +55,7 @@ Or download them on the server:
 ```bash
 mkdir -p ~/php74-cve && cd ~/php74-cve
 curl -fsSLO https://raw.githubusercontent.com/barnabas-szekeres/forge-php-74/main/install.sh
+curl -fsSLO https://raw.githubusercontent.com/barnabas-szekeres/forge-php-74/main/restart-workers.sh
 curl -fsSLO https://raw.githubusercontent.com/barnabas-szekeres/forge-php-74/main/verify.sh
 ```
 
@@ -61,7 +63,7 @@ curl -fsSLO https://raw.githubusercontent.com/barnabas-szekeres/forge-php-74/mai
 
 ```bash
 cd ~/php74-cve
-chmod +x install.sh verify.sh
+chmod +x install.sh restart-workers.sh verify.sh
 ./install.sh
 ```
 
@@ -77,13 +79,29 @@ The script performs these steps:
 6. Installs exactly that version of every package found in step 1, first lifting the hold an earlier build from this repository left behind.
 7. Restarts `php7.4-fpm`.
 
-Afterwards, restart long-running PHP CLI processes as well (queue workers, daemons).
+Afterwards, restart the queue workers and daemons as well (step 3).
 
 `php7.4-fpm` is shared by **every site on the server**. If a staging site lives on the same server as production, installing there affects production too, so use a low-traffic window.
 
 The packages are **not put on hold**. The PPA still offers 7.4.33-30, which is older, so neither apt nor Forge's PHP **Update** button downgrades them. Once the PPA publishes its own 7.4.33-31 build, apt sees it as newer (its `+ubuntu<release>.1+deb.sury.org+1` suffix sorts above the `+0~<date>` suffix of packages.sury.org), and a normal upgrade switches to it.
 
-### 3. Verify
+### 3. Restart queue workers and daemons
+
+Long-running PHP processes keep running the old binary until they restart.
+
+```bash
+./restart-workers.sh
+```
+
+The script performs these steps:
+
+1. Lists the queue workers (`worker-<id>`) and daemons (`daemon-<id>`) that Supervisor runs. For each one it shows the PID, the binary (marked `<- old binary` if it has been replaced since the process started) and the command line. If nothing is running, it says so and exits.
+2. Asks for confirmation, then restarts each program group (`supervisorctl restart <group>:*`).
+3. Lists the PHP processes that still run an old binary but are not managed by Supervisor (for example a manually started script). Restart those yourself.
+
+Supervisor stops each process with SIGTERM, so Laravel queue workers and Horizon finish their current job before restarting. This can take up to the worker's graceful shutdown time set in Forge.
+
+### 4. Verify
 
 ```bash
 ./verify.sh
@@ -104,6 +122,7 @@ It checks five things:
 ```bash
 sudo apt-get install -y --allow-downgrades ~/php74-rollback/*.deb
 sudo systemctl restart php7.4-fpm
+./restart-workers.sh
 ```
 
 Rolling back to the PPA's 7.4.33-30 makes the server vulnerable again.
@@ -142,6 +161,10 @@ The [official advisory](https://www.php.net/archive/2026.php#2026-10-21-5) lists
   - A second run changed nothing and moved the earlier backup aside.
   - The rollback command restored the backed-up packages.
 - On arm64, the script stopped at the version check, because packages.sury.org only had 7.4.33-30 there.
+- `restart-workers.sh` in an `ubuntu:24.04` container with Supervisor. The setup had a 2-process queue worker and a daemon running, a stopped worker, and a PHP process outside Supervisor, and the php7.4 binary had been replaced under them:
+  - It marked the old binary and restarted the running groups only.
+  - It then listed the PHP process outside Supervisor as still running the old binary.
+  - With Supervisor stopped, or with nothing running, it said so and exited.
 - **Not yet tested:** a real Forge server (with the PPA, nginx and systemd) and runtime tests on your applications. Test both on a non-production machine before installing.
 
 ## References

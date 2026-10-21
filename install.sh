@@ -71,8 +71,8 @@ sudo apt-get install -y "${targets[@]}"
 sudo systemctl restart php7.4-fpm   # restart, not reload, so every worker runs the new binary
 
 echo
-echo "Done. Run ./verify.sh to check the result."
-echo "Also restart long-running PHP CLI processes (queue workers, daemons) so they pick up the new binary."
+echo "Done. Run ./restart-workers.sh so queue workers and daemons pick up the new binary,"
+echo "then ./verify.sh to check the result."
 
 # Rollback, if needed:
 #   sudo apt-get install -y --allow-downgrades ~/php74-rollback/*.deb

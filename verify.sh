@@ -27,7 +27,7 @@ done
 
 # 3. No running process still uses a deleted (old) PHP binary
 stale=$(sudo grep -lE 'php.*\(deleted\)$' /proc/[0-9]*/maps 2>/dev/null)
-if [ -z "$stale" ]; then ok "no process runs an old PHP binary"; else bad "processes still running an old PHP binary (restart them):"; echo "$stale" | sed 's/^/         /'; fi
+if [ -z "$stale" ]; then ok "no process runs an old PHP binary"; else bad "processes still running an old PHP binary (restart them, e.g. with ./restart-workers.sh):"; echo "$stale" | sed 's/^/         /'; fi
 
 # 4. Which PHP versions serve sites (every one of them must be patched)
 info "PHP-FPM sockets used by nginx sites:"
