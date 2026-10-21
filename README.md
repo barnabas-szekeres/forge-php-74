@@ -135,7 +135,14 @@ The [official advisory](https://www.php.net/archive/2026.php#2026-10-21-5) lists
 
 ## What was tested
 
-TESTED_PLACEHOLDER
+- The `0164-Avoid-state-corruption-via-bailout.patch` in the 7.4.33-31 source touches the same files and has the same added and removed lines as the patch this repository used before (the upstream fix rebased onto 7.4.33-30).
+- `install.sh` in an `ubuntu:24.04` amd64 container. The container simulated a server running the earlier, held `+kuixcve1` build plus a PECL package, with `php-common` from Ondřej's builds as on a Forge server:
+  - It replaced the 9 core packages with 7.4.33-31 and left the PECL package untouched.
+  - `verify.sh` confirmed the fix in the core packages and in both binaries.
+  - A second run changed nothing and moved the earlier backup aside.
+  - The rollback command restored the backed-up packages.
+- On arm64, the script stopped at the version check, because packages.sury.org only had 7.4.33-30 there.
+- **Not yet tested:** a real Forge server (with the PPA, nginx and systemd) and runtime tests on your applications. Test both on a non-production machine before installing.
 
 ## References
 
