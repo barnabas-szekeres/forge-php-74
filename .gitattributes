@@ -1,0 +1,4 @@
+# Keep patches byte-exact (whitespace in context lines matters)
+*.patch -text
+# Shell scripts must keep LF line endings
+*.sh text eol=lf
