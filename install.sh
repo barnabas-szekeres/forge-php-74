@@ -14,7 +14,8 @@
 #
 # Usage:
 #   ./install.sh
-set -euo pipefail
+set -Eeuo pipefail
+trap 'rc=$?; echo "ERROR: line $LINENO: \"$BASH_COMMAND\" failed (exit $rc)." >&2' ERR   # never stop silently
 
 MIN_VERSION="1:7.4.33-31"     # first official build with the fix
 REPO_LIST="/etc/apt/sources.list.d/sury-php74-temp.list"
@@ -48,7 +49,7 @@ printf 'Package: *\nPin: origin "packages.sury.org"\nPin-Priority: 100\n' | sudo
 # Refresh only this repository: Launchpad answers 503 and its retries would only slow us down.
 sudo apt-get update -o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
 
-ver=$(apt-cache madison php7.4-common | awk '/packages\.sury\.org/ {print $3; exit}')
+ver=$(apt-cache madison php7.4-common | awk '/packages\.sury\.org/ && !v {v=$3} END {print v}')   # read all input: no SIGPIPE under pipefail
 [ -n "$ver" ] || { echo "ERROR: php7.4 not found on packages.sury.org."; exit 1; }
 dpkg --compare-versions "$ver" ge "$MIN_VERSION" \
   || { echo "ERROR: packages.sury.org offers $ver, which is older than $MIN_VERSION."; exit 1; }
