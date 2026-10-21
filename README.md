@@ -1,12 +1,12 @@
 # forge-php-74
 
-Fixes **CVE-2026-109618** and **CVE-2026-109619** ("php2shell") for **PHP 7.4** on **Laravel Forge** servers.
+Fixes **CVE-2026-109618** and **CVE-2026-109619** ("php2shell") for **every PHP version (5.6–8.5)** on **Laravel Forge** servers. The repository started with PHP 7.4, hence its name.
 
-The PHP project released fixed versions for the supported branches only (8.2.35, 8.3.36, 8.4.27, 8.5.12) on 21 October 2026. PHP 7.4 is end-of-life, but the PHP security team published a minimal backport for it, and Ondřej Surý shipped that backport the same day in the official `php7.4` **7.4.33-31** package.
+The PHP project released fixed versions for the supported branches only (8.2.35, 8.3.36, 8.4.27, 8.5.12) on 21 October 2026. For the end-of-life branches, the PHP security team published a minimal backport. Ondřej Surý shipped fixed builds of every branch the same day, for example `php7.4` **7.4.33-31**.
 
-Forge installs PHP from `ppa:ondrej/php` on Launchpad, which is currently overloaded and answers with HTTP 503. `install.sh` therefore installs 7.4.33-31 from Ondřej's own repository, [packages.sury.org](https://packages.sury.org/php/).
+Forge installs PHP from `ppa:ondrej/php` on Launchpad, which is currently overloaded and answers with HTTP 503. `install.sh` therefore installs the fixed build of every PHP version on the server from Ondřej's own repository, [packages.sury.org](https://packages.sury.org/php/).
 
-The result is a **drop-in replacement**: same package names, paths, `php7.4-fpm` service and FPM socket. Forge keeps managing PHP 7.4 exactly as before, and no site configuration changes are needed.
+The result is a **drop-in replacement**: same package names, paths, `phpX.Y-fpm` services and FPM sockets. Forge keeps managing PHP exactly as before, and no site configuration changes are needed.
 
 > **Unofficial helper.** The packages are Ondřej Surý's builds; this repository only installs them. It is not affiliated with the PHP project or deb.sury.org. Test it on a non-production machine first.
 
@@ -14,18 +14,13 @@ The result is a **drop-in replacement**: same package names, paths, `php7.4-fpm`
 
 | File | Purpose |
 |---|---|
-| `install.sh` | Adds packages.sury.org and installs php7.4 7.4.33-31 on a Forge server, with a rollback backup |
+| `install.sh` | Adds packages.sury.org and installs the fixed build of every installed PHP version, with a rollback backup |
 | `restart-workers.sh` | Lists the running queue workers and daemons, then restarts them so they pick up the new binary |
 | `verify.sh` | Post-install checks |
 
 ## About the fix
 
-- **Upstream fix:** php-src branch [`PHP-7.4-CVE-2026-109618-109619`](https://github.com/php/php-src/tree/PHP-7.4-CVE-2026-109618-109619), commit [`712e60f9`](https://github.com/php/php-src/commit/712e60f9edfd03f0960fc4fc3c2c375f42b90aa2) ("Avoid state corruption via bailout").
-- **In the package:** `debian/patches/0164-Avoid-state-corruption-via-bailout.patch`, listed in the changelog as `[CVE-2026-109618, CVE-2026-109619]: Avoid state corruption via bailout`.
-- **Other fixes:** 7.4.33-31 also backports about a dozen other security fixes from 8.2.34 (FastCGI ACL, mysqlnd, OpenSSL hostname checks, phar, SOAP, HTTP stream wrapper and more). The package changelog has the full list.
-- **Earlier builds from this repository:** a previous version of this repository rebuilt 7.4.33-30 with the same patch (`+kuixcve1` packages). Those servers are already protected. `install.sh` replaces that build with the official package.
-- **PECL extensions:** packages built from other sources (`php7.4-memcache(d)`, `-redis`, `-imagick`, ...) stay compatible and are left untouched.
-- **Other PHP versions:** on 21 October 2026, Ondřej also shipped the fix for every other branch: the new upstream releases for 8.2–8.5, and backports for the end-of-life 5.6–8.1. `install.sh` handles php7.4 only, and `verify.sh` checks every installed version. The first fixed build of each branch is:
+- **Fixed builds:** on 21 October 2026, Ondřej shipped the fix for every branch: the new upstream releases for 8.2–8.5, and backports for the end-of-life 5.6–8.1. Each branch's changelog mentions CVE-2026-109618. The first fixed build of each branch is:
 
   | Branch | First fixed build | Branch | First fixed build |
   |---|---|---|---|
@@ -37,19 +32,24 @@ The result is a **drop-in replacement**: same package names, paths, `php7.4-fpm`
   | 7.4 | `1:7.4.33-31` | 8.5 | `8.5.12-1` |
 
   `ppa:ondrej/php` and packages.sury.org use the same Debian revisions, so the PPA's builds compare the same way.
+- **PHP 7.4 upstream fix:** php-src branch [`PHP-7.4-CVE-2026-109618-109619`](https://github.com/php/php-src/tree/PHP-7.4-CVE-2026-109618-109619), commit [`712e60f9`](https://github.com/php/php-src/commit/712e60f9edfd03f0960fc4fc3c2c375f42b90aa2) ("Avoid state corruption via bailout").
+- **In the 7.4 package:** `debian/patches/0164-Avoid-state-corruption-via-bailout.patch`, listed in the changelog as `[CVE-2026-109618, CVE-2026-109619]: Avoid state corruption via bailout`.
+- **Other fixes in 7.4.33-31:** it also backports about a dozen other security fixes from 8.2.34 (FastCGI ACL, mysqlnd, OpenSSL hostname checks, phar, SOAP, HTTP stream wrapper and more). The package changelog has the full list.
+- **Earlier builds from this repository:** a previous version of this repository rebuilt 7.4.33-30 with the same patch (`+kuixcve1` packages). Those servers are already protected. `install.sh` replaces that build with the official package.
+- **PECL extensions:** packages built from other sources (`phpX.Y-memcache(d)`, `-redis`, `-imagick`, ...) stay compatible and are left untouched.
 
 ## Requirements
 
-- A Forge server with `php7.4` installed from `ppa:ondrej/php`.
+- A Forge server with PHP installed from `ppa:ondrej/php`.
 - An Ubuntu release that packages.sury.org serves: 22.04 jammy, 24.04 noble or 26.04 resolute.
-- An **amd64** server. On 21 October 2026, packages.sury.org had 7.4.33-31 for amd64 only, and arm64 was still at 7.4.33-30. On arm64, `install.sh` stops before replacing any PHP package until the fixed build appears there.
+- An **amd64** server. On 21 October 2026, packages.sury.org had the fixed builds for amd64 only. For arm64, every branch was still one build behind (for example 7.4.33-30, 8.3.35-1). On arm64, `install.sh` skips the versions that have no fixed build there and replaces no package until one appears.
 - Outbound HTTPS access to packages.sury.org.
 
 Check the server:
 
 ```bash
 lsb_release -cs     # jammy = 22.04, noble = 24.04
-dpkg -l 'php7.4*' | awk '/^ii/{print $2, $3}'
+dpkg -l 'php*-common' | awk '/^ii/{print $2, $3}'
 ```
 
 ## Usage
@@ -83,19 +83,26 @@ Use the `forge` user, not an isolated site user: isolated users cannot run `sudo
 
 The script performs these steps:
 
-1. Finds the installed packages built from the `php7.4` source.
+1. Finds the installed packages built from a `phpX.Y` source, for every PHP version on the server.
 2. Adds packages.sury.org with its keyring (`/etc/apt/sources.list.d/sury-php74-temp.list`), pinned to priority 100 (`/etc/apt/preferences.d/sury-php74-temp`). apt takes nothing from it unless asked for an exact version, so the rest of the server keeps following the PPA.
 3. Refreshes only that repository, so Launchpad's 503 errors neither slow it down nor get in the way.
-4. Checks that the offered version is 7.4.33-31 or later, lists the packages it will replace and asks for confirmation.
-5. Backs up the currently installed packages with `dpkg-repack` to `~/php74-rollback`. An older backup there is moved aside to `~/php74-rollback.<timestamp>`.
-6. Installs exactly that version of every package found in step 1, first lifting the hold an earlier build from this repository left behind.
-7. Restarts `php7.4-fpm`.
+4. Decides for each PHP version:
+   - **Already fixed:** every package is at least the first fixed build in the table above. The version is left alone.
+   - **To replace:** it is replaced with the packages.sury.org build. The earlier `+kuixcve1` php7.4 build is replaced with the official one as well.
+   - **Not fixed:** packages.sury.org offers no fixed build, for example on arm64, or the branch is unknown. The version is skipped with a warning.
+
+   It then lists the plan and asks for confirmation.
+5. Backs up the packages it will replace with `dpkg-repack` to `~/php74-rollback`. An older backup there is moved aside to `~/php74-rollback.<timestamp>`.
+6. Installs exactly the packages.sury.org version of every package of each version it replaces. All packages of a version are replaced together, because they depend on each other's exact version. Any hold left by an earlier build from this repository is lifted first.
+7. Restarts the `phpX.Y-fpm` service of each replaced version, and Apache if it is running and a replaced `libapache2-mod-php` package is installed.
+
+If some versions could not be fixed, the script ends with a warning and exit code 1.
 
 Afterwards, restart the queue workers and daemons as well (step 3).
 
-`php7.4-fpm` is shared by **every site on the server**. If a staging site lives on the same server as production, installing there affects production too, so use a low-traffic window.
+Each `phpX.Y-fpm` service is shared by **every site on the server that uses that version**. If a staging site lives on the same server as production, installing there affects production too, so use a low-traffic window.
 
-The packages are **not put on hold**. The PPA still offers 7.4.33-30, which is older, so neither apt nor Forge's PHP **Update** button downgrades them. Once the PPA publishes its own 7.4.33-31 build, apt sees it as newer (its `+ubuntu<release>.1+deb.sury.org+1` suffix sorts above the `+0~<date>` suffix of packages.sury.org), and a normal upgrade switches to it.
+The packages are **not put on hold**. The PPA still offers the older builds, so neither apt nor Forge's PHP **Update** button downgrades them. Once the PPA publishes its own fixed builds, apt sees them as newer (their `+ubuntu<release>.1+deb.sury.org+1` suffix sorts above the `+0~<date>` suffix of packages.sury.org), and a normal upgrade switches to them.
 
 ### 3. Restart queue workers and daemons
 
@@ -129,17 +136,17 @@ It checks five things:
 
 The version check assumes PHP comes from Ondřej's builds, as on Forge. Ubuntu's own `php8.x` packages fix security issues without raising the upstream version, so the check would fail them.
 
-`php -v` still reports `7.4.33`. Version-based scanners will therefore keep flagging the host; this is expected.
+For the end-of-life branches (5.6–8.1), `php -v` still reports the old upstream version (for example `7.4.33`). Version-based scanners will therefore keep flagging the host; this is expected.
 
 ### Rollback
 
 ```bash
 sudo apt-get install -y --allow-downgrades ~/php74-rollback/*.deb
-sudo systemctl restart php7.4-fpm
+sudo systemctl restart 'php*-fpm'
 ./restart-workers.sh
 ```
 
-Rolling back to the PPA's 7.4.33-30 makes the server vulnerable again.
+Rolling back to the PPA's older builds makes the server vulnerable again.
 
 ### Removing the temporary repository
 
@@ -150,11 +157,11 @@ sudo rm /etc/apt/sources.list.d/sury-php74-temp.list /etc/apt/preferences.d/sury
 sudo apt-get update
 ```
 
-Once `ppa:ondrej/php` is reachable again and serves 7.4.33-31 or later, switch to its build:
+Once `ppa:ondrej/php` is reachable again and serves the fixed builds, switch to them:
 
 ```bash
-sudo apt-get install --only-upgrade 'php7.4*'
-sudo systemctl restart php7.4-fpm
+sudo apt-get install --only-upgrade 'php*'
+sudo systemctl restart 'php*-fpm'
 ```
 
 ## Interim mitigations
@@ -169,12 +176,13 @@ The [official advisory](https://www.php.net/archive/2026.php#2026-10-21-5) lists
 ## What was tested
 
 - The `0164-Avoid-state-corruption-via-bailout.patch` in the 7.4.33-31 source touches the same files and has the same added and removed lines as the patch this repository used before (the upstream fix rebased onto 7.4.33-30).
-- `install.sh` in an `ubuntu:24.04` amd64 container. The container simulated a server running the earlier, held `+kuixcve1` build plus a PECL package, with `php-common` from Ondřej's builds as on a Forge server:
-  - It replaced the 9 core packages with 7.4.33-31 and left the PECL package untouched.
-  - `verify.sh` confirmed the fix in the core packages and in both binaries.
-  - A second run changed nothing and moved the earlier backup aside.
-  - The rollback command restored the backed-up packages.
-- On arm64, the script stopped at the version check, because packages.sury.org only had 7.4.33-30 there.
+- A simulated install (`apt-get install -s`) of every binary package of all 12 branches, at the packages.sury.org version, resolved with Ubuntu's own dependencies plus Ondřej's `php-common`.
+- `install.sh` in an `ubuntu:24.04` amd64 container. The container simulated a server with the earlier, held `+kuixcve1` php7.4 build, an unfixed php8.1, an already fixed php8.3 (PPA build) and a PECL package, with `php-common` from Ondřej's builds as on a Forge server:
+  - It replaced the php7.4 and php8.1 packages with the fixed builds, left php8.3 and the PECL package untouched, and restarted `php7.4-fpm` and `php8.1-fpm`.
+  - `verify.sh` confirmed the fix for all three versions and in both php7.4 binaries.
+  - A second run found nothing to do. With an unknown php9.0 added, it skipped that version and exited with an error.
+- An earlier test of the same backup code: a second run moved the earlier backup aside, and the rollback command restored the backed-up packages.
+- On arm64, `install.sh` skipped php7.4 and php8.1, because packages.sury.org had no fixed builds there yet, and replaced nothing.
 - `verify.sh` in an `ubuntu:24.04` container with dummy packages for php5.6, 7.4, 8.1, 8.3 and an unknown 9.0, in both PPA and packages.sury.org version styles:
   - It flagged an unfixed `php8.1-common` and an unfixed `libapache2-mod-php7.4`, and passed the fixed branches.
   - It ignored PECL packages and `php-common`, and reported the unknown branch for a manual check.

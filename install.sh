@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
-# Install Ondřej Surý's official php7.4 7.4.33-31 packages on a Laravel Forge server.
-# 7.4.33-31 contains the PHP security team's backport for CVE-2026-109618 / CVE-2026-109619
-# ("php2shell").
+# Install Ondřej Surý's fixed PHP packages for CVE-2026-109618 / CVE-2026-109619 ("php2shell")
+# on a Laravel Forge server, for every installed PHP version (5.6–8.5).
 #
 # Forge installs PHP from ppa:ondrej/php, but Launchpad is overloaded (HTTP 503), so the
-# packages are taken from Ondřej's own repository, packages.sury.org. They are a drop-in
-# replacement: same package names, paths, php7.4-fpm service and FPM socket, so Forge keeps
-# managing PHP 7.4 exactly as before.
+# packages are taken from Ondřej's own repository, packages.sury.org. They are drop-in
+# replacements: same package names, paths, phpX.Y-fpm services and FPM sockets, so Forge keeps
+# managing PHP exactly as before.
 #
 # Run as the `forge` user – isolated site users cannot use `sudo apt`.
-# php7.4-fpm is shared by every site on the server, so installing on a server that also
-# hosts a staging site affects production too. Use a low-traffic window.
+# A phpX.Y-fpm service is shared by every site on the server that uses that version, so
+# installing on a server that also hosts a staging site affects production too. Use a
+# low-traffic window.
 #
 # Usage:
 #   ./install.sh
 set -Eeuo pipefail
 trap 'rc=$?; echo "ERROR: line $LINENO: \"$BASH_COMMAND\" failed (exit $rc)." >&2' ERR   # never stop silently
 
-MIN_VERSION="1:7.4.33-31"     # first official build with the fix
+# First build of each branch with the fix, from the changelogs on packages.sury.org.
+# ppa:ondrej/php uses the same Debian revisions. Keep in sync with verify.sh.
+declare -A FIXED=(
+  [php5.6]=5.6.40-104  [php7.0]=7.0.33-92    [php7.1]=7.1.33-80    [php7.2]=7.2.34-66
+  [php7.3]=7.3.33-35   [php7.4]=1:7.4.33-31  [php8.0]=1:8.0.30-25  [php8.1]=8.1.34-9
+  [php8.2]=8.2.35-1    [php8.3]=8.3.36-1     [php8.4]=8.4.27-1     [php8.5]=8.5.12-1
+)
 REPO_LIST="/etc/apt/sources.list.d/sury-php74-temp.list"
 REPO_PIN="/etc/apt/preferences.d/sury-php74-temp"
 KEYRING="/usr/share/keyrings/deb.sury.org-php.gpg"
@@ -26,12 +32,12 @@ ROLLBACK_DIR="$HOME/php74-rollback"
 . /etc/os-release
 CODENAME="$VERSION_CODENAME"   # e.g. noble
 
-# Replace only packages built from the php7.4 source that are installed now.
-# PECL extension packages built from other sources (php7.4-memcache(d), -redis, -imagick, ...)
+# Installed packages built from a phpX.Y source, as "source package version".
+# PECL extension packages built from other sources (phpX.Y-memcache(d), -redis, -imagick, ...)
 # stay ABI-compatible and are left untouched.
-mapfile -t pkgs < <(dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${source:Package}\n' 'php7.4*' 2>/dev/null \
-  | awk 'substr($1,2,1)=="i" && $3=="php7.4" {print $2}')   # "ii", or "hi" when on hold
-[ "${#pkgs[@]}" -gt 0 ] || { echo "ERROR: no php7.4 packages are installed."; exit 1; }
+installed=$(dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${source:Package} ${Version}\n' 2>/dev/null \
+  | awk 'substr($1,2,1)=="i" && $3 ~ /^php[0-9]+\.[0-9]+$/ {print $3, $2, $4}')   # "ii", or "hi" when on hold
+[ -n "$installed" ] || { echo "ERROR: no PHP packages are installed."; exit 1; }
 
 curl -fsS -o /dev/null "https://packages.sury.org/php/dists/$CODENAME/Release" \
   || { echo "ERROR: packages.sury.org has no packages for Ubuntu $CODENAME."; exit 1; }
@@ -49,12 +55,37 @@ printf 'Package: *\nPin: origin "packages.sury.org"\nPin-Priority: 100\n' | sudo
 # Refresh only this repository: Launchpad answers 503 and its retries would only slow us down.
 sudo apt-get update -o Dir::Etc::sourcelist="$REPO_LIST" -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
 
-ver=$(apt-cache madison php7.4-common | awk '/packages\.sury\.org/ && !v {v=$3} END {print v}')   # read all input: no SIGPIPE under pipefail
-[ -n "$ver" ] || { echo "ERROR: php7.4 not found on packages.sury.org."; exit 1; }
-dpkg --compare-versions "$ver" ge "$MIN_VERSION" \
-  || { echo "ERROR: packages.sury.org offers $ver, which is older than $MIN_VERSION."; exit 1; }
+# --- Decide what to replace, per PHP version ----------------------------------
+# Every package of a version is replaced together, because they depend on each other's exact version.
+pkgs=(); targets=(); services=(); unfixed=()
+echo
+echo "PHP versions on this server:"
+for src in $(awk '{print $1}' <<<"$installed" | sort -uV); do
+  min=${FIXED[$src]:-}
+  mapfile -t src_pkgs < <(awk -v s="$src" '$1==s {print $2}' <<<"$installed")
+  if [ -z "$min" ]; then echo "  $src: no known fixed version, skipped (check it manually)"; unfixed+=("$src"); continue; fi
+  # Fixed already: every package is at least the first fixed build (the earlier +kuixcve1
+  # php7.4 build from this repository is replaced by the official one).
+  todo=$(awk -v s="$src" '$1==s {print $2, $3}' <<<"$installed" | while read -r pkg ver; do
+           dpkg --compare-versions "$ver" ge "$min" && [[ "$ver" != *kuixcve* ]] || echo "$pkg"
+         done)
+  if [ -z "$todo" ]; then echo "  $src: already fixed (${#src_pkgs[@]} package(s))"; continue; fi
+  ver=$(apt-cache madison "$src-common" | awk '/packages\.sury\.org/ && !v {v=$3} END {print v}')   # read all input: no SIGPIPE under pipefail
+  if [ -z "$ver" ] || ! dpkg --compare-versions "$ver" ge "$min"; then
+    echo "  $src: NOT fixed, packages.sury.org offers ${ver:-nothing}, older than $min – skipped"; unfixed+=("$src"); continue
+  fi
+  echo "  $src: replace ${#src_pkgs[@]} package(s) with $ver"
+  printf '      %s\n' "${src_pkgs[@]}"
+  for p in "${src_pkgs[@]}"; do pkgs+=("$p"); targets+=("$p=$ver"); done
+  [[ " ${src_pkgs[*]} " == *" $src-fpm "* ]] && services+=("$src-fpm")
+done
+echo
 
-echo "Packages to replace with $ver:"; printf '  %s\n' "${pkgs[@]}"
+if [ "${#pkgs[@]}" -eq 0 ]; then
+  if [ "${#unfixed[@]}" -gt 0 ]; then echo "ERROR: nothing to install, and these versions are not fixed: ${unfixed[*]}"; exit 1; fi
+  echo "All PHP versions already contain the fix. Nothing to do."
+  exit 0
+fi
 read -r -p "Proceed? [y/N] " ok; [ "$ok" = "y" ] || exit 1
 
 # Rollback backup of the currently installed packages. They are repacked locally,
@@ -65,15 +96,20 @@ sudo apt-get install -y dpkg-repack
 ( cd "$ROLLBACK_DIR" && sudo dpkg-repack "${pkgs[@]}" )
 echo "Rollback packages saved to $ROLLBACK_DIR"
 
-targets=(); for p in "${pkgs[@]}"; do targets+=("$p=$ver"); done
 sudo apt-mark unhold "${pkgs[@]}" >/dev/null   # an earlier build from this repository was put on hold
 sudo apt-get install -y "${targets[@]}"
-sudo systemctl restart php7.4-fpm   # restart, not reload, so every worker runs the new binary
+for s in "${services[@]}"; do
+  sudo systemctl restart "$s"   # restart, not reload, so every worker runs the new binary
+done
+if [[ " ${pkgs[*]} " == *" libapache2-mod-php"* ]] && systemctl is-active --quiet apache2; then
+  sudo systemctl restart apache2   # mod_php runs inside Apache
+fi
 
 echo
-echo "Done. Run ./restart-workers.sh so queue workers and daemons pick up the new binary,"
+echo "Done. Run ./restart-workers.sh so queue workers and daemons pick up the new binaries,"
 echo "then ./verify.sh to check the result."
+if [ "${#unfixed[@]}" -gt 0 ]; then echo; echo "WARNING: these PHP versions are still not fixed: ${unfixed[*]}"; exit 1; fi
 
 # Rollback, if needed:
 #   sudo apt-get install -y --allow-downgrades ~/php74-rollback/*.deb
-#   sudo systemctl restart php7.4-fpm
+#   sudo systemctl restart 'php*-fpm'
