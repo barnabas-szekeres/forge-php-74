@@ -6,10 +6,14 @@ ok()   { echo "[OK]   $*"; }
 bad()  { echo "[FAIL] $*"; FAIL=1; }
 info() { echo "[INFO] $*"; }
 
-# 1. Every installed package built from the php7.4 source is our patched build
+# 1. Every installed package built from the php7.4 source is the official 7.4.33-31 or later,
+#    or the +kuixcve1 build from an earlier version of this repository
 unpatched=$(dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${source:Package} ${Version}\n' 'php7.4*' 2>/dev/null \
-  | awk '$1=="ii" && $3=="php7.4" && $4 !~ /kuixcve/ {print $2" "$4}')
-if [ -z "$unpatched" ]; then ok "all php7.4 core packages are the patched build"; else bad "unpatched php7.4 packages:"; echo "$unpatched" | sed 's/^/         /'; fi
+  | while read -r st pkg src ver; do
+      [[ "$st" == ?i* ]] && [ "$src" = "php7.4" ] || continue   # "ii", or "hi" when on hold
+      dpkg --compare-versions "$ver" ge 1:7.4.33-31 || [[ "$ver" == *kuixcve* ]] || echo "$pkg $ver"
+    done)
+if [ -z "$unpatched" ]; then ok "all php7.4 core packages contain the fix"; else bad "unpatched php7.4 packages:"; echo "$unpatched" | sed 's/^/         /'; fi
 
 # 2. The binaries contain symbols that only exist in the patched code
 for bin in /usr/sbin/php-fpm7.4 /usr/bin/php7.4; do
@@ -29,7 +33,7 @@ if [ -z "$stale" ]; then ok "no process runs an old PHP binary"; else bad "proce
 info "PHP-FPM sockets used by nginx sites:"
 grep -rhoE 'php[0-9.]+-fpm\.sock' /etc/nginx/sites-enabled 2>/dev/null | sort | uniq -c | sed 's/^/         /'
 if grep -rqE 'php(5\.[0-9]|7\.[0-3]|8\.[01])-fpm\.sock' /etc/nginx/sites-enabled 2>/dev/null; then
-  bad "some sites use a PHP version this repository does not patch (5.x, 7.0–7.3, 8.0, 8.1)"
+  bad "some sites use a PHP version this repository does not cover (5.x, 7.0–7.3, 8.0, 8.1)"
 fi
 for v in 8.2 8.3 8.4 8.5; do
   command -v "php-fpm$v" >/dev/null && info "php-fpm$v: $(php-fpm$v -v 2>/dev/null | head -1)  (fixed: 8.2.35 / 8.3.36 / 8.4.27 / 8.5.12)"
