@@ -6,6 +6,7 @@
 #
 # Exit code: 1 if a check failed, 2 if only warnings were found, 0 otherwise.
 set -uo pipefail
+export LC_ALL=C   # logs can hold any bytes; matching them byte-wise is also much faster
 DAYS=${1:-5}
 [[ "$DAYS" =~ ^[0-9]+$ ]] || { echo "Usage: $0 [days]"; exit 64; }
 FAIL=0; WARN=0
@@ -33,7 +34,12 @@ for src in $(awk '{print $1}' <<<"$installed" | sort -uV); do
   old=$(awk -v s="$src" '$1==s {print $2, $3}' <<<"$installed" | while read -r pkg ver; do
           dpkg --compare-versions "$ver" ge "$min" || [[ "$ver" == *kuixcve* ]] || echo "$pkg $ver"
         done)
+  # The vulnerabilities need PHP to serve web requests: FPM, CGI, LiteSpeed, the Apache module or embed
+  web=$(awk -v s="$src" '$1==s && ($2 ~ /-(fpm|cgi|litespeed)$/ || $2 ~ /^libapache2-mod-php|^libphp.*-embed$/)' <<<"$installed")
   if [ -z "$old" ]; then ok "$src contains the fix ($n package(s), fixed in $min)"
+  elif [ -z "$web" ]; then
+    warn "$src does NOT contain the fix, but only its CLI is installed (no FPM, CGI or Apache module), so it serves no web requests. Update it with ./install.sh or remove it. Packages older than $min:"
+    echo "$old" | sed 's/^/         /'
   else bad "$src does NOT contain the fix, these packages are older than $min:"; echo "$old" | sed 's/^/         /'; fi
 done
 
@@ -80,7 +86,9 @@ count() { grep -c . <<<"$1"; }
 clients() { grep -oE 'client: [0-9a-fA-F.:]+' <<<"$1" | sort | uniq -c | sort -rn | head -5 | awk '{printf "%s%s (%dx)", sep, $3, $1; sep=", "}'; }
 
 # PHP errors raised while FPM parses a request reach nginx as "FastCGI sent in stderr" (one error log per Forge site)
-nginx=$(logs /var/log/nginx/*error.log* | awk -v c="${since//-//}" 'substr($0, 1, 10) >= c')
+nginx=$(logs /var/log/nginx/*error.log* \
+  | grep -E 'Allowed memory size of|Unknown: (Input variable|Multipart body parts|Maximum number of allowable)|POST Content-Length of|upstream prematurely closed' \
+  | awk -v c="${since//-//}" 'substr($0, 1, 10) >= c')
 oom=$(grep -E 'Allowed memory size of [0-9]+ bytes exhausted.* in Unknown on line 0' <<<"$nginx")
 if [ -n "$oom" ]; then
   warn "$(count "$oom") request(s) ran out of memory while PHP parsed them, before any application code (the CVE-2026-109618 pattern). Clients: $(clients "$oom")"
@@ -92,7 +100,7 @@ limits=$(grep -E 'Unknown: (Input variables exceeded|Input variable nesting leve
 lost=$(grep -E 'upstream prematurely closed connection while reading response header from upstream.*upstream: "fastcgi://' <<<"$nginx")
 [ -z "$lost" ] || info "$(count "$lost") request(s) lost their PHP-FPM worker mid-request. Clients: $(clients "$lost")"
 
-fpm=$(logs /var/log/php*-fpm.log* | awk -v c="${since//-/}" '
+fpm=$(logs /var/log/php*-fpm.log* | grep -E 'exited (with code|on signal)' | awk -v c="${since//-/}" '
   BEGIN { split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec", m); for (i = 1; i <= 12; i++) mon[m[i]] = sprintf("%02d", i) }
   /^\[[0-9][0-9]-[A-Z][a-z][a-z]-[0-9][0-9][0-9][0-9] / { if (substr($0, 9, 4) mon[substr($0, 5, 3)] substr($0, 2, 2) >= c) print }')
 startup=$(grep -E 'child [0-9]+ exited with code 70 after' <<<"$fpm")   # FPM_EXIT_SOFTWARE: request startup failed

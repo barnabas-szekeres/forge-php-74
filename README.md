@@ -129,7 +129,7 @@ Supervisor stops each process with SIGTERM, so Laravel queue workers and Horizon
 
 It checks these things:
 
-- Every installed PHP version contains the fix: each package built from a `phpX.Y` source is at least the first fixed build in the table above. For php7.4 the earlier `+kuixcve1` build also passes.
+- Every installed PHP version contains the fix: each package built from a `phpX.Y` source is at least the first fixed build in the table above. For php7.4 the earlier `+kuixcve1` build also passes. The check uses the installed packages, not Forge's list of PHP versions. A version can be installed without Forge knowing about it, for example when a `php-*` metapackage pulls it in as a dependency. An unfixed version with only CLI packages (no FPM, CGI, LiteSpeed, Apache module or embed SAPI) gives a warning instead of a failure, because the vulnerabilities need PHP to serve web requests. Update it with `install.sh` or remove it.
 - `php-fpm7.4` and `php7.4` contain the fix: they export `zend_new_array_singleton` and `zend_mm_safe_error_ex`, which only exist in the patched code.
 - No process still runs an old binary.
 - Which PHP versions serve sites (for information).
@@ -213,6 +213,7 @@ The [official advisory](https://www.php.net/archive/2026.php#2026-10-21-5) lists
   - Every planted sign was reported with the right count and client IPs.
   - Lines outside the window and an ordinary SIGTERM were ignored. A 1-day window dropped the rotated line from 2 days earlier.
   - A clean server passed with exit code 0, the planted traces gave exit code 2, and a bad argument gave exit code 64.
+  - With gawk, a UTF-8 locale and a 426 MB nginx error log full of invalid UTF-8 bytes, it gave no locale warning, finished in 0.3 seconds and used 5 MB of memory.
 - `restart-workers.sh` in an `ubuntu:24.04` container with Supervisor. The setup had a 2-process queue worker and a daemon running, a stopped worker, and a PHP process outside Supervisor, and the php7.4 binary had been replaced under them:
   - It marked the old binary and restarted the running groups only.
   - It then listed the PHP process outside Supervisor as still running the old binary.
