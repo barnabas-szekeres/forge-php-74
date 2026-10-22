@@ -123,16 +123,38 @@ Supervisor stops each process with SIGTERM, so Laravel queue workers and Horizon
 ### 4. Verify
 
 ```bash
-./verify.sh
+./verify.sh          # scans the last 5 days of logs for exploitation attempts
+./verify.sh 14       # or another number of days
 ```
 
-It checks five things:
+It checks these things:
 
 - Every installed PHP version contains the fix: each package built from a `phpX.Y` source is at least the first fixed build in the table above. For php7.4 the earlier `+kuixcve1` build also passes.
 - `php-fpm7.4` and `php7.4` contain the fix: they export `zend_new_array_singleton` and `zend_mm_safe_error_ex`, which only exist in the patched code.
 - No process still runs an old binary.
 - Which PHP versions serve sites (for information).
-- Whether `session.upload_progress.enabled` is disabled, for every installed PHP-FPM version.
+- Whether `session.upload_progress.enabled` is disabled, for every installed PHP-FPM version, and whether nginx passes `PHP_VALUE` / `PHP_ADMIN_VALUE` to PHP-FPM (one of the CVE-2026-109619 paths).
+- Signs of exploitation attempts in the last 5 days (see below).
+
+The exit code is 1 if a check failed, 2 if there were only warnings, and 0 otherwise.
+
+#### Signs of exploitation attempts
+
+This part is **heuristic**. It reads the current and rotated logs, so it can only see as far back as the logs reach, and finding nothing does not prove that there was no attempt. It is based on the attack paths in the two GitHub advisories:
+
+| Sign | Where | Level |
+|---|---|---|
+| A request ran out of memory while PHP parsed it, before any application code ran (`Allowed memory size … in Unknown on line 0`). This is the CVE-2026-109618 pattern: oversized or deeply nested multipart bodies. | nginx error logs (`FastCGI sent in stderr`), with the client IPs | WARN |
+| A PHP-FPM worker exited with code 70. FPM ends a worker this way when a request fails during startup. | `/var/log/phpX.Y-fpm.log` | WARN |
+| A PHP process crashed (SIGSEGV, SIGABRT, SIGBUS, ...). Attempts to corrupt memory look like this. | FPM logs, kernel log (`journalctl -k`) | WARN |
+| A request hit PHP's input limits (variables, nesting, multipart parts, uploads, POST size). | nginx error logs, with the client IPs | INFO |
+| A request lost its PHP-FPM worker mid-request. | nginx error logs, with the client IPs | INFO |
+| Out-of-memory errors or timeouts inside the application. These can start the FPM variant of the attack. | `storage/logs/*.log` of each site | INFO |
+| A shell or network tool runs under a PHP-FPM worker right now. | process list | WARN |
+| A PHP file is in the public upload folder (`storage/app/public`). | site folders | WARN |
+| A PHP file in a `public` folder changed within the window (apart from `index.php`). | site folders | INFO |
+
+A WARN is a reason to look closer, not proof of an attack. If one comes up, review the listed client IPs and requests and the site's files. If the server ran an unfixed PHP at the time, treat it as possibly compromised.
 
 The version check assumes PHP comes from Ondřej's builds, as on Forge. Ubuntu's own `php8.x` packages fix security issues without raising the upstream version, so the check would fail them.
 
@@ -187,6 +209,10 @@ The [official advisory](https://www.php.net/archive/2026.php#2026-10-21-5) lists
 - `verify.sh` in an `ubuntu:24.04` container with dummy packages for php5.6, 7.4, 8.1, 8.3 and an unknown 9.0, in both PPA and packages.sury.org version styles:
   - It flagged an unfixed `php8.1-common` and an unfixed `libapache2-mod-php7.4`, and passed the fixed branches.
   - It ignored PECL packages and `php-common`, and reported the unknown branch for a manual check.
+- The exploitation-signs part of `verify.sh` in an `ubuntu:24.04` container. Traces were planted in nginx, FPM and Laravel logs (current and gzipped rotated logs, inside and outside the window), along with a PHP file in `storage/app/public`, a changed PHP file in `public`, a shell under a process named `php-fpm8.3`, and a `PHP_VALUE` line in the nginx configuration:
+  - Every planted sign was reported with the right count and client IPs.
+  - Lines outside the window and an ordinary SIGTERM were ignored. A 1-day window dropped the rotated line from 2 days earlier.
+  - A clean server passed with exit code 0, the planted traces gave exit code 2, and a bad argument gave exit code 64.
 - `restart-workers.sh` in an `ubuntu:24.04` container with Supervisor. The setup had a 2-process queue worker and a daemon running, a stopped worker, and a PHP process outside Supervisor, and the php7.4 binary had been replaced under them:
   - It marked the old binary and restarted the running groups only.
   - It then listed the PHP process outside Supervisor as still running the old binary.
